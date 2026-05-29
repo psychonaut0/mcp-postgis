@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
-from psycopg.sql import SQL, Identifier
+from psycopg.sql import SQL, Composable, Identifier
 
 from mcp_postgis.config import Mode
 from mcp_postgis.errors import ToolError, translate
@@ -38,7 +38,7 @@ async def _detect_geom_col(cur: Any) -> tuple[str | None, list[str]]:
     return geom, names
 
 
-def _base_query(source: str, srv: ServerContext) -> SQL:
+def _base_query(source: str, srv: ServerContext) -> Composable:
     """Return a composable SELECT for `source`: a bare table identifier becomes
     SELECT * FROM <ident>; otherwise it is treated as a read-only SELECT."""
     if _TABLE_RE.match(source.strip()):

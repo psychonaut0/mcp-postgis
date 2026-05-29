@@ -178,7 +178,7 @@ async def simplify(
     frag, params = _frag(geom, srid)
     fn = "ST_SimplifyPreserveTopology" if preserve_topology else "ST_Simplify"
     sql = SQL(
-        "WITH g AS (SELECT (" + frag + ") AS o), "
+        "WITH g AS (SELECT (" + frag + ") AS o), "  # noqa: S608
         "s AS (SELECT o, " + fn + "(o, %s) AS simp FROM g) "
         "SELECT ST_AsGeoJSON(simp)::json, ST_NPoints(o), ST_NPoints(simp) FROM s"
     )
@@ -206,7 +206,7 @@ async def is_valid(
     srv: ServerContext = ctx.request_context.lifespan_context
     frag, params = _frag(geom, srid)
     sql = SQL(
-        "WITH g AS (SELECT (" + frag + ") AS geom) "
+        "WITH g AS (SELECT (" + frag + ") AS geom) "  # noqa: S608
         "SELECT ST_IsValid(geom), ST_IsValidReason(geom) FROM g"
     )
     try:

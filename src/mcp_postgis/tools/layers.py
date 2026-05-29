@@ -5,7 +5,7 @@ import re
 from typing import Any, cast
 
 from mcp.server.fastmcp import Context, FastMCP
-from psycopg.sql import SQL, Identifier, Literal
+from psycopg.sql import SQL, Composable, Identifier, Literal
 
 from mcp_postgis import errors
 from mcp_postgis.config import Mode
@@ -138,6 +138,7 @@ async def create_layer(
                 )
 
             # Build effective SQL: optionally wrap with a geometry-type filter.
+            effective_sql: Composable
             if geometry_type is not None:
                 wanted = _GEOM_TYPE_MAP[geometry_type]
                 types_sql = SQL(", ").join([Literal(t) for t in wanted])
