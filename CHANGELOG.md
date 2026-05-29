@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-30
+
+### Added
+- **`import_geojson`** — load a GeoJSON FeatureCollection (or single Feature)
+  into a PostGIS table `(id, geom GEOMETRY(Geometry, srid), properties jsonb)`
+  with a GIST index. `mode="create"` (errors if the table exists — no clobber)
+  or `mode="append"`. Requires `read_write` (layer schema only) or `admin` (any
+  schema). The first data-ingestion write path; imports over `MAX_ROWS` features
+  are rejected rather than truncated, and a malformed feature rolls back the
+  whole import.
+
+[0.3.0]: https://github.com/psychonaut0/mcp-postgis/releases/tag/v0.3.0
+
 ## [0.2.2] - 2026-05-29
 
 ### Fixed

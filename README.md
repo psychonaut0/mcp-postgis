@@ -88,7 +88,8 @@ Restart `claude`, then `/mcp` lists the server and its tools. Use `--scope user`
 
 **Data quality:** `check_geometry_validity`
 
-**Export:** `export_geojson`, `export_wkt`
+**Import / export:** `import_geojson` (load a GeoJSON FeatureCollection into a
+table), `export_geojson`, `export_wkt`
 
 **Layer publishing (QGIS bridge):** `create_layer` (with `geometry_type`
 filter), `refresh_layer`, `list_layers`, `describe_layer`, `drop_layer`
