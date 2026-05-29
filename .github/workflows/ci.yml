@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Type-check (mypy --strict)
+        run: uv run mypy src/mcp_postgis
+
+      # Integration tests spin up a real PostGIS container via testcontainers.
+      # Docker is available by default on GitHub-hosted ubuntu runners.
+      - name: Tests (pytest)
+        run: uv run pytest -v
