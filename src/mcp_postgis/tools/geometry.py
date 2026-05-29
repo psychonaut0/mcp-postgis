@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
-from psycopg.sql import SQL
+from psycopg.sql import SQL, Identifier
 
 from mcp_postgis.errors import ToolError, translate
 from mcp_postgis.geom import parse_geom_input
@@ -251,6 +251,99 @@ async def make_valid(
     return out
 
 
+async def _primary_key_expr(cur: Any, schema: str, table: str) -> Any:
+    """Return an SQL expression for the row id: the single-column PK if there is
+    one, else ctid::text. Returns a psycopg SQL/Identifier composable."""
+    await cur.execute(
+        "SELECT a.attname "
+        "FROM pg_index i "
+        "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+        "WHERE i.indrelid = to_regclass(%s) AND i.indisprimary",
+        (f"{schema}.{table}",),
+    )
+    pk_cols = await cur.fetchall()
+    if len(pk_cols) == 1:
+        return Identifier(pk_cols[0][0])
+    return SQL("ctid::text")
+
+
+async def check_geometry_validity(
+    ctx: _Ctx,
+    schema: str,
+    table: str,
+    geom_col: str,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Scan a table for invalid or out-of-range (lon/lat) geometries. Read-only.
+    Returns counts plus a capped sample of offenders; publish them as a QA layer
+    via create_layer if you want to inspect them in QGIS."""
+    srv: ServerContext = ctx.request_context.lifespan_context
+    cap = srv.cfg.max_rows if limit is None else max(1, min(limit, srv.cfg.max_rows))
+    g = Identifier(geom_col)
+    sch = Identifier(schema)
+    tbl = Identifier(table)
+
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute("SELECT to_regclass(%s) IS NOT NULL", (f"{schema}.{table}",))
+            exists = await cur.fetchone()
+            if not exists or not exists[0]:
+                raise ToolError("not_found", f"{schema}.{table} does not exist")
+
+            id_expr = await _primary_key_expr(cur, schema, table)
+
+            oor = SQL(
+                "(ST_XMin({g}) < -180 OR ST_XMax({g}) > 180 "
+                " OR ST_YMin({g}) < -90 OR ST_YMax({g}) > 90)"
+            ).format(g=g)
+
+            counts_sql = SQL(
+                "SELECT count(*) FILTER (WHERE NOT ST_IsValid({g})), "
+                "       count(*) FILTER (WHERE {oor}) "
+                "FROM {sch}.{tbl}"
+            ).format(g=g, oor=oor, sch=sch, tbl=tbl)
+            await cur.execute(counts_sql)
+            crow = await cur.fetchone()
+            invalid_count = int(crow[0]) if crow else 0
+            out_of_range_count = int(crow[1]) if crow else 0
+
+            sample_sql = SQL(
+                "SELECT ({id})::text AS id, "
+                "       ST_IsValidReason({g}) AS reason, "
+                "       NOT ST_IsValid({g}) AS invalid, "
+                "       {oor} AS out_of_range "
+                "FROM {sch}.{tbl} "
+                "WHERE NOT ST_IsValid({g}) OR {oor} "
+                "LIMIT %s"
+            ).format(id=id_expr, g=g, oor=oor, sch=sch, tbl=tbl)
+            await cur.execute(sample_sql, (cap + 1,))
+            rows = await cur.fetchall()
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+
+    truncated = len(rows) > cap
+    rows = rows[:cap]
+    offenders = [
+        {"id": r[0], "reason": r[1], "invalid": bool(r[2]), "out_of_range": bool(r[3])}
+        for r in rows
+    ]
+    return {
+        "schema": schema,
+        "table": table,
+        "geom_col": geom_col,
+        "invalid_count": invalid_count,
+        "out_of_range_count": out_of_range_count,
+        "offenders": offenders,
+        "truncated": truncated,
+        "hint": (
+            "publish offenders as a QA layer with create_layer using the same "
+            "predicates; preview a fix with make_valid"
+        ),
+    }
+
+
 def register(mcp: FastMCP) -> None:
     mcp.tool()(transform_srid)
     mcp.tool()(centroid)
@@ -261,3 +354,4 @@ def register(mcp: FastMCP) -> None:
     mcp.tool()(simplify)
     mcp.tool()(is_valid)
     mcp.tool()(make_valid)
+    mcp.tool()(check_geometry_validity)

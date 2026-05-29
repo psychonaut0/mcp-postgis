@@ -175,3 +175,49 @@ async def test_make_valid_fixes_bowtie(db_url: str, fake_ctx_factory) -> None:
         assert result["result_type"]
         again = await is_valid(fake_ctx_factory(srv), geom=result["wkt"])
         assert again["valid"] is True
+
+
+@pytest.mark.integration
+async def test_check_geometry_validity_finds_offenders(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import check_geometry_validity
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await check_geometry_validity(
+            fake_ctx_factory(srv), schema="app", table="bad_geoms", geom_col="geom",
+        )
+        assert result["invalid_count"] >= 1
+        assert result["out_of_range_count"] >= 1
+        assert len(result["offenders"]) >= 1
+        o = result["offenders"][0]
+        assert "id" in o and "reason" in o and "invalid" in o and "out_of_range" in o
+
+
+@pytest.mark.integration
+async def test_check_geometry_validity_clean_table(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import check_geometry_validity
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await check_geometry_validity(
+            fake_ctx_factory(srv), schema="app", table="cities", geom_col="geom",
+        )
+        assert result["invalid_count"] == 0
+        assert result["out_of_range_count"] == 0
+        assert result["offenders"] == []
+
+
+@pytest.mark.integration
+async def test_check_geometry_validity_missing_table(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import check_geometry_validity
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await check_geometry_validity(
+                fake_ctx_factory(srv), schema="app", table="ghost", geom_col="geom",
+            )
+        assert exc.value.code == "not_found"
