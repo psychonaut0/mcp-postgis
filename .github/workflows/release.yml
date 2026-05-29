@@ -1,0 +1,36 @@
+name: Release
+
+# Publishes to PyPI when a GitHub Release is published, using PyPI Trusted
+# Publishing (OIDC) — no API token stored anywhere. Configure the matching
+# trusted publisher once at:
+#   https://pypi.org/manage/project/mcp-postgis/settings/publishing/
+#   owner: psychonaut0 · repo: mcp-postgis · workflow: release.yml · environment: pypi
+#
+# Builds run against `main`, which is the clean public branch, so the sdist
+# never includes internal docs.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mcp-postgis/
+    permissions:
+      id-token: write   # required for trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
