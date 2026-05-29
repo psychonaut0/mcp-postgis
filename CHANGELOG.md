@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-29
+
+A read-only round-out of the toolkit.
+
+### Added
+- **Geometry operations** (inline WKT/GeoJSON): `transform_srid`, `centroid`,
+  `point_on_surface`, `area`, `length`, `simplify`, `is_valid`, `make_valid`,
+  `bbox`.
+- **`check_geometry_validity`** — read-only scan for invalid / out-of-range
+  geometries in a table, with a capped sample of offenders.
+- **Export**: `export_geojson` (table or SELECT → FeatureCollection),
+  `export_wkt`.
+- **`create_layer` `geometry_type` filter** — publish single-type layers; a
+  warning is returned when an unfiltered layer mixes geometry types.
+- **MCP resources**: `postgis://schemas`, `postgis://schema/{schema}/{table}`,
+  `postgis://layers`.
+- **MCP prompts**: `analyze-layer`, `nearest-things`, `within-radius`,
+  `compare-layers`.
+
+[0.2.0]: https://github.com/psychonaut0/mcp-postgis/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-05-29
 
 Initial release — a Model Context Protocol server for PostGIS.

@@ -73,6 +73,30 @@ Restart `claude`, then `/mcp` lists the server and its tools. Use `--scope user`
 | `read_write` | Above + create/refresh/drop views in `MCP_POSTGIS_LAYER_SCHEMA` (`mcp_layers` by default).      |
 | `admin`      | Anything the connected role can do. Use only for one-off admin tasks; the role still gates.     |
 
+## Tools
+
+**Introspection:** `list_schemas`, `list_tables`, `describe_table`,
+`list_geometry_columns`, `list_spatial_indexes`, `list_extensions`
+
+**Query:** `execute_sql`, `explain`, `sample_table`
+
+**Spatial analysis:** `features_in_bbox`, `features_in_polygon`,
+`nearest_features`, `within_distance`, `buffer`, `intersect_layers`
+
+**Geometry operations:** `transform_srid`, `centroid`, `point_on_surface`,
+`area`, `length`, `simplify`, `is_valid`, `make_valid`, `bbox`
+
+**Data quality:** `check_geometry_validity`
+
+**Export:** `export_geojson`, `export_wkt`
+
+**Layer publishing (QGIS bridge):** `create_layer` (with `geometry_type`
+filter), `refresh_layer`, `list_layers`, `describe_layer`, `drop_layer`
+
+**Resources:** `postgis://schemas`, `postgis://schema/{schema}/{table}`,
+`postgis://layers` · **Prompts:** `analyze-layer`, `nearest-things`,
+`within-radius`, `compare-layers`
+
 ## QGIS integration
 
 After running the server in `read_write` mode and asking Claude to "publish that as a layer named `hotels_near_coast`", point QGIS at the same database (or use the same role). In the QGIS Browser → PostGIS → your connection, right-click → Refresh; the `mcp_layers` schema appears with `hotels_near_coast` inside it.
