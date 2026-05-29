@@ -329,6 +329,39 @@ async def test_import_malformed_geometry_rolls_back(db_url: str, fake_ctx_factor
 
 
 @pytest.mark.integration
+async def test_import_append_malformed_rolls_back_no_partial_rows(
+    db_url: str, fake_ctx_factory
+) -> None:
+    # spec §9: a malformed feature in APPEND mode leaves no partial rows.
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="mcp_layers", target_table="append_rb",
+            geojson=_fc(_pt(1, 1, n="seed")),
+        )
+        gj = {"type": "FeatureCollection", "features": [
+            _pt(2, 2, n="ok"),
+            {"type": "Feature",
+             "geometry": {"type": "NotARealType", "coordinates": [0, 0]},
+             "properties": {"n": "bad"}},
+        ]}
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="append_rb",
+                geojson=gj, mode="append",
+            )
+        assert exc.value.code == "invalid_geom"
+        async with db.read() as cur:
+            await cur.execute("SELECT count(*) FROM mcp_layers.append_rb")
+            assert (await cur.fetchone())[0] == 1  # only the seed row; append rolled back
+
+
+@pytest.mark.integration
 async def test_import_bad_name_rejected(db_url: str, fake_ctx_factory) -> None:
     from mcp_postgis.tools.ingest import import_geojson
 
