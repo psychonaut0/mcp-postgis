@@ -32,3 +32,18 @@ CREATE TABLE app.notes (
     id    BIGSERIAL PRIMARY KEY,
     body  TEXT NOT NULL
 );
+
+-- Deliberately malformed geometries for validity-checker tests.
+-- Stored with a generic Geometry type so invalid/out-of-range values are accepted.
+CREATE TABLE app.bad_geoms (
+    id    BIGSERIAL PRIMARY KEY,
+    label TEXT NOT NULL,
+    geom  GEOMETRY(Geometry, 4326) NOT NULL
+);
+INSERT INTO app.bad_geoms (label, geom) VALUES
+    -- self-intersecting "bowtie" polygon -> ST_IsValid = false
+    ('bowtie', ST_SetSRID(ST_GeomFromText(
+        'POLYGON((0 0, 1 1, 1 0, 0 1, 0 0))'), 4326)),
+    -- longitude 200 is outside [-180, 180] -> out of range
+    ('out_of_range', ST_SetSRID(ST_GeomFromText(
+        'POINT(200 10)'), 4326));
