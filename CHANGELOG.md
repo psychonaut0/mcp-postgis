@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-29
+
+### Fixed
+- Circular import that prevented importing tool/resource submodules before
+  `mcp_postgis.server` (`ServerContext` moved to `mcp_postgis.context`). The
+  server entry point was unaffected; this fixes library-style imports.
+
+[0.2.1]: https://github.com/psychonaut0/mcp-postgis/releases/tag/v0.2.1
+
 ## [0.2.0] - 2026-05-29
 
 A read-only round-out of the toolkit.
