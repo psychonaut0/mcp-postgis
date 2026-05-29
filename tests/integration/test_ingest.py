@@ -317,11 +317,12 @@ async def test_import_malformed_geometry_rolls_back(db_url: str, fake_ctx_factor
              "geometry": {"type": "NotARealType", "coordinates": [0, 0]},
              "properties": {"x": 1}},
         ]}
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError) as exc:
             await import_geojson(
                 fake_ctx_factory(srv),
                 target_schema="mcp_layers", target_table="rollback_me", geojson=gj,
             )
+        assert exc.value.code == "invalid_geom"
         async with db.read() as cur:
             await cur.execute("SELECT to_regclass('mcp_layers.rollback_me') IS NULL")
             assert (await cur.fetchone())[0] is True

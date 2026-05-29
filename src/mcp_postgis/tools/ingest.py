@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import psycopg
 from mcp.server.fastmcp import Context, FastMCP
 from psycopg.sql import SQL, Identifier, Literal
 from psycopg.types.json import Jsonb
@@ -155,7 +156,13 @@ async def import_geojson(
                 "INSERT INTO {sch}.{tbl} (geom, properties) "
                 "VALUES (ST_SetSRID(ST_GeomFromGeoJSON(%s), %s), %s)"
             ).format(sch=sch, tbl=tbl)
-            await cur.executemany(insert, [(g, srid, p) for (g, p) in rows])
+            try:
+                await cur.executemany(insert, [(g, srid, p) for (g, p) in rows])
+            except psycopg.Error as e:
+                raise ToolError(
+                    "invalid_geom",
+                    f"a feature geometry could not be parsed by PostGIS: {e}",
+                ) from e
             rows_imported = len(rows)
     except ToolError:
         raise
