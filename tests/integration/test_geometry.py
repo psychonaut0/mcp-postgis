@@ -210,6 +210,28 @@ async def test_check_geometry_validity_clean_table(db_url: str, fake_ctx_factory
 
 
 @pytest.mark.integration
+async def test_check_geometry_validity_mixed_case_table(
+    db_url: str, fake_ctx_factory
+) -> None:
+    """Regression: a mixed-case (quoted) table must resolve through to_regclass.
+
+    Covers both the existence check and _primary_key_expr, which would silently
+    fall back to ctid (or raise not_found) if the identifier were unquoted.
+    """
+    from mcp_postgis.tools.geometry import check_geometry_validity
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await check_geometry_validity(
+            fake_ctx_factory(srv), schema="app", table="CamelCity", geom_col="geom",
+        )
+        assert result["invalid_count"] == 0
+        assert result["out_of_range_count"] == 0
+        assert result["offenders"] == []
+
+
+@pytest.mark.integration
 async def test_check_geometry_validity_missing_table(db_url: str, fake_ctx_factory) -> None:
     from mcp_postgis.tools.geometry import check_geometry_validity
 

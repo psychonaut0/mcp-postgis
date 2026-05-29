@@ -21,7 +21,10 @@ _Ctx = Context[Any, Any, Any]
 
 
 async def _ensure_table_exists(cur: Any, schema: str, table: str) -> None:
-    await cur.execute("SELECT to_regclass(%s) IS NOT NULL", (f"{schema}.{table}",))
+    await cur.execute(
+        "SELECT to_regclass(format('%%I.%%I', %s::text, %s::text)) IS NOT NULL",
+        (schema, table),
+    )
     row = await cur.fetchone()
     if not row or not row[0]:
         raise ToolError("not_found", f"{schema}.{table} does not exist")

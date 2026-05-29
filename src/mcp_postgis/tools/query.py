@@ -204,8 +204,8 @@ async def sample_table(
     # 1. Existence check
     async with srv.db.read() as cur:
         await cur.execute(
-            "SELECT to_regclass(%s)",
-            (f"{schema}.{table}",),
+            "SELECT to_regclass(format('%%I.%%I', %s::text, %s::text))",
+            (schema, table),
         )
         row = await cur.fetchone()
         exists = row is not None and row[0] is not None

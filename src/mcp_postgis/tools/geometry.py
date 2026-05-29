@@ -258,8 +258,9 @@ async def _primary_key_expr(cur: Any, schema: str, table: str) -> Any:
         "SELECT a.attname "
         "FROM pg_index i "
         "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
-        "WHERE i.indrelid = to_regclass(%s) AND i.indisprimary",
-        (f"{schema}.{table}",),
+        "WHERE i.indrelid = to_regclass(format('%%I.%%I', %s::text, %s::text)) "
+        "AND i.indisprimary",
+        (schema, table),
     )
     pk_cols = await cur.fetchall()
     if len(pk_cols) == 1:
@@ -285,7 +286,10 @@ async def check_geometry_validity(
 
     try:
         async with srv.db.read() as cur:
-            await cur.execute("SELECT to_regclass(%s) IS NOT NULL", (f"{schema}.{table}",))
+            await cur.execute(
+                "SELECT to_regclass(format('%%I.%%I', %s::text, %s::text)) IS NOT NULL",
+                (schema, table),
+            )
             exists = await cur.fetchone()
             if not exists or not exists[0]:
                 raise ToolError("not_found", f"{schema}.{table} does not exist")

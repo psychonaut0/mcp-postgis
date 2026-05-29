@@ -160,6 +160,28 @@ async def test_describe_table_not_found_raises_tool_error(
     assert exc_info.value.code == "not_found"
 
 
+@pytest.mark.integration
+async def test_describe_table_mixed_case_name(
+    db_url: str, fake_ctx_factory
+) -> None:
+    """Regression: a mixed-case (quoted) table must resolve through to_regclass.
+
+    An unquoted identifier passed to to_regclass() is lowercased by Postgres,
+    so app."CamelCity" would wrongly resolve to NULL and raise not_found.
+    """
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await describe_table(  # type: ignore[arg-type]
+            fake_ctx_factory(srv), schema="app", table="CamelCity"
+        )
+
+    assert result["schema"] == "app"
+    assert result["table"] == "CamelCity"
+    col_names = {c["name"] for c in result["columns"]}
+    assert {"id", "name", "geom"}.issubset(col_names)
+
+
 # ---------------------------------------------------------------------------
 # 7.4  list_geometry_columns
 # ---------------------------------------------------------------------------

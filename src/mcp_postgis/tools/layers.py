@@ -357,8 +357,8 @@ async def list_layers(ctx: _Ctx) -> dict[str, Any]:
         try:
             # Check whether _meta exists.
             await cur.execute(
-                "SELECT to_regclass(%s) IS NOT NULL",
-                (f"{schema}._meta",),
+                "SELECT to_regclass(format('%%I.%%I', %s::text, %s::text)) IS NOT NULL",
+                (schema, "_meta"),
             )
             exists_row = await cur.fetchone()
             if not exists_row or not exists_row[0]:

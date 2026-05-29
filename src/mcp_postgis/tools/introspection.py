@@ -120,8 +120,8 @@ async def describe_table(ctx: _Ctx, schema: str, table: str) -> dict[str, Any]:
     # through async-with __aexit__ without tripping a TypeError on __traceback__).
     async with srv.db.read() as cur:
         await cur.execute(
-            "SELECT to_regclass(%s)",
-            (f"{schema}.{table}",),
+            "SELECT to_regclass(format('%%I.%%I', %s::text, %s::text))",
+            (schema, table),
         )
         row = await cur.fetchone()
         exists = row is not None and row[0] is not None

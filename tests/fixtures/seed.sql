@@ -47,3 +47,14 @@ INSERT INTO app.bad_geoms (label, geom) VALUES
     -- longitude 200 is outside [-180, 180] -> out of range
     ('out_of_range', ST_SetSRID(ST_GeomFromText(
         'POINT(200 10)'), 4326));
+
+-- A mixed-case (quoted) table name: exercises correct identifier quoting in
+-- to_regclass() lookups. An unquoted identifier would be lowercased by Postgres
+-- and fail to resolve.
+CREATE TABLE app."CamelCity" (
+    id   BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    geom GEOMETRY(Point, 4326) NOT NULL
+);
+INSERT INTO app."CamelCity" (name, geom) VALUES
+    ('Quoted', ST_SetSRID(ST_MakePoint(9.1, 39.2), 4326));
