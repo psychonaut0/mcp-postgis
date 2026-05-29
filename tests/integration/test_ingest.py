@@ -76,3 +76,267 @@ async def test_import_create_happy_path(db_url: str, fake_ctx_factory) -> None:
                 "AND indexdef ILIKE '%USING gist%'"
             )
             assert (await cur.fetchone())[0] == 1
+
+
+def _poly(**props):
+    return {
+        "type": "Feature",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[8.0, 38.8], [9.8, 38.8], [9.8, 41.3], [8.0, 41.3], [8.0, 38.8]]],
+        },
+        "properties": props,
+    }
+
+
+# --- Task 2: append, mixed geometry, single feature ---
+
+@pytest.mark.integration
+async def test_import_mixed_geometry_types(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        gj = _fc(_pt(12.5, 41.9, name="pt"), _poly(name="poly"))
+        result = await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="mcp_layers", target_table="mixed_import", geojson=gj,
+        )
+        assert result["rows_imported"] == 2
+        async with db.read() as cur:
+            await cur.execute(
+                "SELECT count(DISTINCT GeometryType(geom)) FROM mcp_layers.mixed_import"
+            )
+            assert (await cur.fetchone())[0] == 2
+
+
+@pytest.mark.integration
+async def test_import_append(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="mcp_layers", target_table="appendable",
+            geojson=_fc(_pt(1, 1, n="a")),
+        )
+        result = await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="mcp_layers", target_table="appendable",
+            geojson=_fc(_pt(2, 2, n="b"), _pt(3, 3, n="c")), mode="append",
+        )
+        assert result["mode"] == "append"
+        assert result["rows_imported"] == 2
+        async with db.read() as cur:
+            await cur.execute("SELECT count(*) FROM mcp_layers.appendable")
+            assert (await cur.fetchone())[0] == 3
+
+
+@pytest.mark.integration
+async def test_import_single_feature(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="mcp_layers", target_table="one_feature",
+            geojson=_pt(5, 5, name="solo"),
+        )
+        assert result["rows_imported"] == 1
+
+
+# --- Task 3: mode/schema gating ---
+
+@pytest.mark.integration
+async def test_import_read_only_denied(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="nope", geojson=_fc(_pt(1, 1)),
+            )
+        assert exc.value.code == "permission_denied"
+
+
+@pytest.mark.integration
+async def test_import_read_write_nonlayer_schema_denied(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="app", target_table="sneaky", geojson=_fc(_pt(1, 1)),
+            )
+        assert exc.value.code == "permission_denied"
+
+
+@pytest.mark.integration
+async def test_import_admin_other_schema_ok(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.ADMIN)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="app", target_table="admin_import",
+            geojson=_fc(_pt(1, 1, name="x")),
+        )
+        assert result["full_name"] == "app.admin_import"
+        assert result["rows_imported"] == 1
+
+
+# --- Task 4: edge cases ---
+
+@pytest.mark.integration
+async def test_import_create_on_existing_errors(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        await import_geojson(
+            fake_ctx_factory(srv),
+            target_schema="mcp_layers", target_table="dup", geojson=_fc(_pt(1, 1)),
+        )
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="dup", geojson=_fc(_pt(2, 2)),
+            )
+        assert exc.value.code == "invalid_argument"
+        assert "already exists" in exc.value.message
+
+
+@pytest.mark.integration
+async def test_import_append_missing_table(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="ghost",
+                geojson=_fc(_pt(1, 1)), mode="append",
+            )
+        assert exc.value.code == "not_found"
+
+
+@pytest.mark.integration
+async def test_import_bad_mode(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="x",
+                geojson=_fc(_pt(1, 1)), mode="replace",
+            )
+        assert exc.value.code == "invalid_argument"
+
+
+@pytest.mark.integration
+async def test_import_not_a_featurecollection(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="x",
+                geojson={"type": "Point", "coordinates": [0, 0]},
+            )
+        assert exc.value.code == "invalid_argument"
+
+
+@pytest.mark.integration
+async def test_import_null_geometry_feature(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        gj = {"type": "FeatureCollection", "features": [
+            {"type": "Feature", "geometry": None, "properties": {"x": 1}},
+        ]}
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="x", geojson=gj,
+            )
+        assert exc.value.code == "invalid_geom"
+
+
+@pytest.mark.integration
+async def test_import_over_cap_errors_and_no_table(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE, max_rows=2)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        gj = _fc(_pt(1, 1), _pt(2, 2), _pt(3, 3))
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="too_big", geojson=gj,
+            )
+        assert exc.value.code == "invalid_argument"
+        async with db.read() as cur:
+            await cur.execute("SELECT to_regclass('mcp_layers.too_big') IS NULL")
+            assert (await cur.fetchone())[0] is True
+
+
+@pytest.mark.integration
+async def test_import_malformed_geometry_rolls_back(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        gj = {"type": "FeatureCollection", "features": [
+            {"type": "Feature",
+             "geometry": {"type": "NotARealType", "coordinates": [0, 0]},
+             "properties": {"x": 1}},
+        ]}
+        with pytest.raises(ToolError):
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="rollback_me", geojson=gj,
+            )
+        async with db.read() as cur:
+            await cur.execute("SELECT to_regclass('mcp_layers.rollback_me') IS NULL")
+            assert (await cur.fetchone())[0] is True
+
+
+@pytest.mark.integration
+async def test_import_bad_name_rejected(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.ingest import import_geojson
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await import_geojson(
+                fake_ctx_factory(srv),
+                target_schema="mcp_layers", target_table="Bad Name", geojson=_fc(_pt(1, 1)),
+            )
+        assert exc.value.code == "invalid_argument"
