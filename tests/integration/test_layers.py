@@ -338,3 +338,57 @@ async def test_drop_layer_unknown(db_url: str, fake_ctx_factory) -> None:
             await drop_layer(fake_ctx_factory(srv), name="missing_layer")
 
     assert exc.value.code == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# Tests for geometry_type filter and mixed-type warning (v0.2)
+# ---------------------------------------------------------------------------
+
+_MIXED_SQL = (
+    "SELECT id, name, geom FROM app.cities "
+    "UNION ALL SELECT id, name, geom FROM app.regions"
+)
+
+
+@pytest.mark.integration
+async def test_create_layer_geometry_type_point_filters(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.layers import create_layer
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await create_layer(
+            fake_ctx_factory(srv), name="pts_only", sql=_MIXED_SQL, geometry_type="point",
+        )
+        assert result["geometry_type"] == "point"
+        assert result["row_count"] == 3       # only the 3 cities (points)
+        assert result.get("warning") is None
+
+
+@pytest.mark.integration
+async def test_create_layer_mixed_warns_when_unfiltered(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.layers import create_layer
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await create_layer(
+            fake_ctx_factory(srv), name="mixed_layer", sql=_MIXED_SQL,
+        )
+        assert result["geometry_type"] is None
+        assert result["warning"]              # names the mixed types
+        assert result["row_count"] == 4       # 3 points + 1 polygon
+
+
+@pytest.mark.integration
+async def test_create_layer_bad_geometry_type(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.layers import create_layer
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_WRITE)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        with pytest.raises(ToolError) as exc:
+            await create_layer(
+                fake_ctx_factory(srv), name="bad", sql=_MIXED_SQL, geometry_type="blob",
+            )
+        assert exc.value.code == "invalid_argument"

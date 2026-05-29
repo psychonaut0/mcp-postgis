@@ -5,7 +5,7 @@ import re
 from typing import Any, cast
 
 from mcp.server.fastmcp import Context, FastMCP
-from psycopg.sql import SQL, Identifier
+from psycopg.sql import SQL, Identifier, Literal
 
 from mcp_postgis import errors
 from mcp_postgis.config import Mode
@@ -78,6 +78,7 @@ async def create_layer(
     sql: str,
     materialized: bool = False,
     description: str | None = None,
+    geometry_type: str | None = None,
 ) -> dict[str, Any]:
     """Publish a SELECT as a (materialized) view in the layer schema.
 
@@ -92,6 +93,17 @@ async def create_layer(
 
     _require_writeable(cfg)
     _validate_name(name)
+
+    _GEOM_TYPE_MAP = {
+        "point": ("POINT", "MULTIPOINT"),
+        "line": ("LINESTRING", "MULTILINESTRING"),
+        "polygon": ("POLYGON", "MULTIPOLYGON"),
+    }
+    if geometry_type is not None and geometry_type not in _GEOM_TYPE_MAP:
+        raise ToolError(
+            "invalid_argument",
+            f"geometry_type must be one of {sorted(_GEOM_TYPE_MAP)} or omitted",
+        )
 
     # Validate the body SQL is read-only.
     from mcp_postgis import safety
@@ -125,6 +137,17 @@ async def create_layer(
                     hint="add a column like `geom` or `ST_AsBinary(geom) AS geom`",
                 )
 
+            # Build effective SQL: optionally wrap with a geometry-type filter.
+            if geometry_type is not None:
+                wanted = _GEOM_TYPE_MAP[geometry_type]
+                types_sql = SQL(", ").join([Literal(t) for t in wanted])
+                effective_sql = SQL(
+                    "SELECT * FROM ({inner}) __src "
+                    "WHERE GeometryType(__src.{gcol}) IN ({types})"
+                ).format(inner=SQL(sql), gcol=Identifier(geom_col), types=types_sql)
+            else:
+                effective_sql = SQL(sql)
+
             # Drop any existing view/mv of the same name.
             if materialized:
                 await cur.execute(
@@ -142,14 +165,14 @@ async def create_layer(
                 await cur.execute(
                     SQL("CREATE MATERIALIZED VIEW {view} AS {sql}").format(
                         view=view_id,
-                        sql=SQL(sql),
+                        sql=effective_sql,
                     )
                 )
             else:
                 await cur.execute(
                     SQL("CREATE VIEW {view} AS {sql}").format(
                         view=view_id,
-                        sql=SQL(sql),
+                        sql=effective_sql,
                     )
                 )
 
@@ -174,6 +197,28 @@ async def create_layer(
             )
             row_count_row = await cur.fetchone()
             row_count = int(row_count_row[0]) if row_count_row else 0
+
+            # Detect mixed geometry types when no filter was applied.
+            warning = None
+            if geometry_type is None:
+                await cur.execute(
+                    SQL(
+                        "SELECT array_agg(DISTINCT "
+                        "  regexp_replace(GeometryType({gcol}), '^MULTI', '')) "
+                        "FROM {schema}.{view}"
+                    ).format(
+                        gcol=Identifier(geom_col),
+                        schema=schema_id,
+                        view=name_id,
+                    )
+                )
+                trow = await cur.fetchone()
+                base_types = [t for t in (trow[0] if trow and trow[0] else []) if t]
+                if len(base_types) > 1:
+                    warning = (
+                        f"layer mixes geometry types {sorted(base_types)}; QGIS prefers "
+                        "one type per layer — re-run with geometry_type=point|line|polygon"
+                    )
 
             # Upsert into _meta.
             if materialized:
@@ -214,6 +259,8 @@ async def create_layer(
         "geom_column": geom_col,
         "row_count": row_count,
         "description": description,
+        "geometry_type": geometry_type,
+        "warning": warning,
     }
 
 
