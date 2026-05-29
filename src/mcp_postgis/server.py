@@ -62,6 +62,7 @@ from mcp_postgis.tools import query as _query  # noqa: E402
 from mcp_postgis.tools import spatial as _spatial  # noqa: E402
 from mcp_postgis.tools import geometry as _geometry  # noqa: E402
 from mcp_postgis.tools import export as _export  # noqa: E402
+from mcp_postgis import resources as _resources  # noqa: E402
 
 _introspection.register(mcp)
 _layers.register(mcp)
@@ -69,6 +70,7 @@ _query.register(mcp)
 _spatial.register(mcp)
 _geometry.register(mcp)
 _export.register(mcp)
+_resources.register(mcp)
 
 
 if __name__ == "__main__":
