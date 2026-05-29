@@ -59,6 +59,69 @@ async def transform_srid(
     return out
 
 
+async def centroid(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326
+) -> dict[str, Any]:
+    """Geometric centroid of geom (may fall outside concave shapes)."""
+    return await _single_geom_op(ctx, "ST_Centroid", geom, srid)
+
+
+async def point_on_surface(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326
+) -> dict[str, Any]:
+    """A point guaranteed to lie on/inside geom (use for label placement)."""
+    return await _single_geom_op(ctx, "ST_PointOnSurface", geom, srid)
+
+
+async def _single_geom_op(
+    ctx: _Ctx, fn: str, geom: str | dict[str, Any], srid: int
+) -> dict[str, Any]:
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    sql = SQL("SELECT ST_AsGeoJSON(" + fn + "(" + frag + "))::json")
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    return {"geometry": row[0], "srid": srid}
+
+
+async def bbox(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326
+) -> dict[str, Any]:
+    """Envelope (bounding box) of geom as a GeoJSON polygon + [minx,miny,maxx,maxy]."""
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    sql = SQL(
+        "WITH g AS (SELECT (" + frag + ") AS geom) "
+        "SELECT ST_AsGeoJSON(ST_Envelope(geom))::json, "
+        "       ST_XMin(geom), ST_YMin(geom), ST_XMax(geom), ST_YMax(geom) "
+        "FROM g"
+    )
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    return {
+        "geometry": row[0],
+        "bounds": [float(row[1]), float(row[2]), float(row[3]), float(row[4])],
+        "srid": srid,
+    }
+
+
 def register(mcp: FastMCP) -> None:
     mcp.tool()(transform_srid)
+    mcp.tool()(centroid)
+    mcp.tool()(point_on_surface)
+    mcp.tool()(bbox)
     # Further ops are appended to this register() in later tasks.

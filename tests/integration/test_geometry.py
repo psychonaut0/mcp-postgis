@@ -65,3 +65,42 @@ async def test_transform_srid_bad_geom(db_url: str, fake_ctx_factory) -> None:
         with pytest.raises(ToolError) as exc:
             await transform_srid(fake_ctx_factory(srv), geom="not a geom", target_srid=3857)
         assert exc.value.code == "invalid_geom"
+
+
+_SARDINIA = "POLYGON((8.0 38.8, 9.8 38.8, 9.8 41.3, 8.0 41.3, 8.0 38.8))"
+
+
+@pytest.mark.integration
+async def test_centroid_inside_bbox(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import centroid
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await centroid(fake_ctx_factory(srv), geom=_SARDINIA)
+        assert result["geometry"]["type"] == "Point"
+        x, y = result["geometry"]["coordinates"]
+        assert 8.0 < x < 9.8 and 38.8 < y < 41.3
+
+
+@pytest.mark.integration
+async def test_point_on_surface_inside(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import point_on_surface
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await point_on_surface(fake_ctx_factory(srv), geom=_SARDINIA)
+        assert result["geometry"]["type"] == "Point"
+
+
+@pytest.mark.integration
+async def test_bbox_bounds(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import bbox
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await bbox(fake_ctx_factory(srv), geom=_SARDINIA)
+        assert result["bounds"] == [8.0, 38.8, 9.8, 41.3]
+        assert result["geometry"]["type"] == "Polygon"
