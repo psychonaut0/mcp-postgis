@@ -119,9 +119,145 @@ async def bbox(
     }
 
 
+async def area(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326, unit: str = "m2"
+) -> dict[str, Any]:
+    """Geodesic area of geom. unit in {"m2","km2"} (computed on ::geography)."""
+    if unit not in ("m2", "km2"):
+        raise ToolError("invalid_argument", "unit must be 'm2' or 'km2'")
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    sql = SQL("SELECT ST_Area(ST_Transform(" + frag + ", 4326)::geography)")
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    m2 = float(row[0])
+    return {"area": m2 / 1_000_000 if unit == "km2" else m2, "unit": unit}
+
+
+async def length(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326, unit: str = "m"
+) -> dict[str, Any]:
+    """Geodesic length of geom. unit in {"m","km"} (computed on ::geography)."""
+    if unit not in ("m", "km"):
+        raise ToolError("invalid_argument", "unit must be 'm' or 'km'")
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    sql = SQL("SELECT ST_Length(ST_Transform(" + frag + ", 4326)::geography)")
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    m = float(row[0])
+    return {"length": m / 1000 if unit == "km" else m, "unit": unit}
+
+
+async def simplify(
+    ctx: _Ctx,
+    geom: str | dict[str, Any],
+    tolerance: float,
+    preserve_topology: bool = True,
+    srid: int = 4326,
+) -> dict[str, Any]:
+    """Simplify geom (Douglas-Peucker). tolerance is in the SRID's units — for
+    4326 that is DEGREES (~0.001 deg = 100 m near the equator)."""
+    if tolerance < 0:
+        raise ToolError("invalid_argument", "tolerance must be >= 0")
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    fn = "ST_SimplifyPreserveTopology" if preserve_topology else "ST_Simplify"
+    sql = SQL(
+        "WITH g AS (SELECT (" + frag + ") AS o), "
+        "s AS (SELECT o, " + fn + "(o, %s) AS simp FROM g) "
+        "SELECT ST_AsGeoJSON(simp)::json, ST_NPoints(o), ST_NPoints(simp) FROM s"
+    )
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, (*params, tolerance))
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    return {
+        "geometry": row[0],
+        "vertices_before": int(row[1]),
+        "vertices_after": int(row[2]),
+        "srid": srid,
+    }
+
+
+async def is_valid(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326
+) -> dict[str, Any]:
+    """Whether geom is OGC-valid, with the reason if not."""
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    sql = SQL(
+        "WITH g AS (SELECT (" + frag + ") AS geom) "
+        "SELECT ST_IsValid(geom), ST_IsValidReason(geom) FROM g"
+    )
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    valid = bool(row[0])
+    return {"valid": valid, "reason": None if valid else row[1]}
+
+
+async def make_valid(
+    ctx: _Ctx, geom: str | dict[str, Any], srid: int = 4326
+) -> dict[str, Any]:
+    """Repair geom with ST_MakeValid. NOTE: the result type may differ from the
+    input (e.g. an invalid polygon may become a multipolygon/collection)."""
+    srv: ServerContext = ctx.request_context.lifespan_context
+    frag, params = _frag(geom, srid)
+    sql = SQL(
+        "WITH g AS (SELECT ST_MakeValid(" + frag + ") AS geom) "
+        "SELECT "
+        "  CASE WHEN %s = 4326 THEN ST_AsGeoJSON(geom)::json ELSE NULL END, "
+        "  ST_AsText(geom), GeometryType(geom) "
+        "FROM g"
+    )
+    try:
+        async with srv.db.read() as cur:
+            await cur.execute(sql, (*params, srid))
+            row = await cur.fetchone()
+        assert row is not None
+    except ToolError:
+        raise
+    except Exception as e:
+        raise translate(e) from e
+    out: dict[str, Any] = {"wkt": row[1], "result_type": row[2], "srid": srid}
+    if row[0] is not None:
+        out["geometry"] = row[0]
+    return out
+
+
 def register(mcp: FastMCP) -> None:
     mcp.tool()(transform_srid)
     mcp.tool()(centroid)
     mcp.tool()(point_on_surface)
     mcp.tool()(bbox)
-    # Further ops are appended to this register() in later tasks.
+    mcp.tool()(area)
+    mcp.tool()(length)
+    mcp.tool()(simplify)
+    mcp.tool()(is_valid)
+    mcp.tool()(make_valid)

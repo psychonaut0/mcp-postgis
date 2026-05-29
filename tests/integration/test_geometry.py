@@ -104,3 +104,74 @@ async def test_bbox_bounds(db_url: str, fake_ctx_factory) -> None:
         result = await bbox(fake_ctx_factory(srv), geom=_SARDINIA)
         assert result["bounds"] == [8.0, 38.8, 9.8, 41.3]
         assert result["geometry"]["type"] == "Polygon"
+
+
+_BOWTIE = "POLYGON((0 0, 1 1, 1 0, 0 1, 0 0))"
+
+
+@pytest.mark.integration
+async def test_area_km2_positive(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import area
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await area(fake_ctx_factory(srv), geom=_SARDINIA, unit="km2")
+        assert result["unit"] == "km2"
+        assert 10_000 < result["area"] < 100_000
+
+
+@pytest.mark.integration
+async def test_length_m_positive(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import length
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await length(
+            fake_ctx_factory(srv),
+            geom="LINESTRING(9.12 39.22, 9.19 45.46)", unit="km",
+        )
+        assert result["unit"] == "km"
+        assert result["length"] > 600
+
+
+@pytest.mark.integration
+async def test_simplify_reduces_vertices(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import simplify
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        dense = (
+            "LINESTRING(0 0, 0.1 0.01, 0.2 -0.01, 0.3 0.0, 0.4 0.01, "
+            "0.5 0.0, 0.6 -0.01, 0.7 0.0, 0.8 0.0, 1 0)"
+        )
+        result = await simplify(fake_ctx_factory(srv), geom=dense, tolerance=0.05)
+        assert result["vertices_after"] < result["vertices_before"]
+        assert result["geometry"]["type"] == "LineString"
+
+
+@pytest.mark.integration
+async def test_is_valid_false_on_bowtie(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import is_valid
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await is_valid(fake_ctx_factory(srv), geom=_BOWTIE)
+        assert result["valid"] is False
+        assert result["reason"]
+
+
+@pytest.mark.integration
+async def test_make_valid_fixes_bowtie(db_url: str, fake_ctx_factory) -> None:
+    from mcp_postgis.tools.geometry import is_valid, make_valid
+
+    cfg = Config(database_url=db_url, mode=Mode.READ_ONLY)
+    async with Database(cfg) as db:
+        srv = ServerContext(cfg=cfg, db=db)
+        result = await make_valid(fake_ctx_factory(srv), geom=_BOWTIE)
+        assert result["result_type"]
+        again = await is_valid(fake_ctx_factory(srv), geom=result["wkt"])
+        assert again["valid"] is True
