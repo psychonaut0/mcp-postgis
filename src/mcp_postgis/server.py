@@ -4,20 +4,14 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
 from mcp_postgis import __version__
-from mcp_postgis.config import Config, load_config
+from mcp_postgis.config import load_config
+from mcp_postgis.context import ServerContext
 from mcp_postgis.db import Database
-
-
-@dataclass(slots=True)
-class ServerContext:
-    cfg: Config
-    db: Database
 
 
 @asynccontextmanager

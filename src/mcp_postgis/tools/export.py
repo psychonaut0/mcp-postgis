@@ -8,9 +8,9 @@ from mcp.server.fastmcp import Context, FastMCP
 from psycopg.sql import SQL, Composable, Identifier
 
 from mcp_postgis.config import Mode
+from mcp_postgis.context import ServerContext
 from mcp_postgis.errors import ToolError, translate
 from mcp_postgis.safety import ensure_allowed
-from mcp_postgis.server import ServerContext
 
 _Ctx = Context[Any, Any, Any]
 

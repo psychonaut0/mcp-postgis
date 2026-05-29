@@ -8,9 +8,9 @@ import psycopg.sql
 from mcp.server.fastmcp import Context, FastMCP
 
 from mcp_postgis import errors
+from mcp_postgis.context import ServerContext
 from mcp_postgis.errors import ToolError
 from mcp_postgis.safety import ensure_allowed
-from mcp_postgis.server import ServerContext
 
 # FastMCP Context is Generic[ServerSessionT, LifespanContextT, RequestT]; using
 # Any for all params avoids noisy type-arg errors on every function signature.

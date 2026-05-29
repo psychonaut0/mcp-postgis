@@ -6,9 +6,9 @@ from typing import Any, cast
 import psycopg
 from mcp.server.fastmcp import Context, FastMCP
 
+from mcp_postgis.context import ServerContext
 from mcp_postgis.db import fetch_dicts
 from mcp_postgis.errors import ToolError
-from mcp_postgis.server import ServerContext
 
 # FastMCP Context is Generic[ServerSessionT, LifespanContextT, RequestT]; using
 # Any for all params avoids noisy type-arg errors on every function signature.

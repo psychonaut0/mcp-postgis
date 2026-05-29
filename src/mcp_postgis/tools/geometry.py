@@ -12,9 +12,9 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 from psycopg.sql import SQL, Identifier
 
+from mcp_postgis.context import ServerContext
 from mcp_postgis.errors import ToolError, translate
 from mcp_postgis.geom import parse_geom_input
-from mcp_postgis.server import ServerContext
 
 _Ctx = Context[Any, Any, Any]
 
